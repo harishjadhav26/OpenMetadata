@@ -1,0 +1,20 @@
+apiVersion: v1
+kind: Service
+metadata:
+  labels:
+    service: openmetadata-dependencies-web
+  name: openmetadata-dependencies-web
+  namespace: default
+spec:
+  ports:
+  - appProtocol: http
+    name: web
+    port: 8080
+    protocol: TCP
+    targetPort: 8080
+  selector:
+    app: openmetadata-dependencies-web
+  sessionAffinity: None
+  type: ClusterIP
+status:
+  loadBalancer: {}

@@ -1,0 +1,160 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    app: openmetadata-app
+  name: openmetadata-app
+  namespace: default
+spec:
+  progressDeadlineSeconds: 600
+  replicas: 1
+  revisionHistoryLimit: 10
+  selector:
+    matchLabels:
+      app.kubernetes.io/instance: openmetadata
+      app.kubernetes.io/name: openmetadata
+  strategy:
+    rollingUpdate:
+      maxSurge: 25%
+      maxUnavailable: 25%
+    type: RollingUpdate
+  template:
+    metadata:
+      labels:
+        app: openmetadata-app
+    spec:
+      containers:
+      - env:
+        - name: DB_USER_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              key: openmetadata-mysql-password
+              name: mysql-secrets
+        - name: AIRFLOW_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              key: openmetadata-airflow-password
+              name: airflow-secrets
+        envFrom:
+        - secretRef:
+            name: openmetadata-config-secret
+        - secretRef:
+            name: openmetadata-omd-secret
+        - secretRef:
+            name: openmetadata-db-secret
+        - secretRef:
+            name: openmetadata-search-secret
+        - secretRef:
+            name: openmetadata-authorizer-secret
+        - secretRef:
+            name: openmetadata-secretsmanager-secret
+        - secretRef:
+            name: openmetadata-web-secret
+        - secretRef:
+            name: openmetadata-authentication-secret
+        - secretRef:
+            name: openmetadata-eventmonitor-secret
+        - secretRef:
+            name: openmetadata-pipeline-secret
+        - secretRef:
+            name: openmetadata-jwt-secret
+        - secretRef:
+            name: openmetadata-fernetkey-secret
+        image: docker.getcollate.io/openmetadata/server:1.6.5
+        imagePullPolicy: Always
+        livenessProbe:
+          failureThreshold: 5
+          httpGet:
+            path: /healthcheck
+            port: http-admin
+            scheme: HTTP
+          initialDelaySeconds: 60
+          periodSeconds: 30
+          successThreshold: 1
+          timeoutSeconds: 1
+        name: openmetadata-app
+        ports:
+        - containerPort: 8585
+          name: http
+          protocol: TCP
+        - containerPort: 8586
+          name: http-admin
+          protocol: TCP
+        readinessProbe:
+          failureThreshold: 5
+          httpGet:
+            path: /
+            port: http
+            scheme: HTTP
+          initialDelaySeconds: 60
+          periodSeconds: 30
+          successThreshold: 1
+          timeoutSeconds: 1
+        resources: {}
+        securityContext: {}
+        startupProbe:
+          failureThreshold: 5
+          httpGet:
+            path: /healthcheck
+            port: http-admin
+            scheme: HTTP
+          periodSeconds: 60
+          successThreshold: 1
+          timeoutSeconds: 1
+        terminationMessagePath: /dev/termination-log
+        terminationMessagePolicy: File
+      dnsPolicy: ClusterFirst
+      initContainers:
+      - command:
+        - /bin/bash
+        - -c
+        - '/opt/openmetadata/bootstrap/openmetadata-ops.sh migrate '
+        env:
+        - name: DB_USER_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              key: openmetadata-mysql-password
+              name: mysql-secrets
+        - name: AIRFLOW_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              key: openmetadata-airflow-password
+              name: airflow-secrets
+        envFrom:
+        - secretRef:
+            name: openmetadata-config-secret
+        - secretRef:
+            name: openmetadata-omd-secret
+        - secretRef:
+            name: openmetadata-db-secret
+        - secretRef:
+            name: openmetadata-search-secret
+        - secretRef:
+            name: openmetadata-authorizer-secret
+        - secretRef:
+            name: openmetadata-secretsmanager-secret
+        - secretRef:
+            name: openmetadata-web-secret
+        - secretRef:
+            name: openmetadata-authentication-secret
+        - secretRef:
+            name: openmetadata-eventmonitor-secret
+        - secretRef:
+            name: openmetadata-pipeline-secret
+        - secretRef:
+            name: openmetadata-jwt-secret
+        - secretRef:
+            name: openmetadata-fernetkey-secret
+        image: docker.getcollate.io/openmetadata/server:1.6.5
+        imagePullPolicy: Always
+        name: run-db-migrations
+        resources: {}
+        securityContext: {}
+        terminationMessagePath: /dev/termination-log
+        terminationMessagePolicy: File
+      restartPolicy: Always
+      schedulerName: default-scheduler
+      securityContext: {}
+      serviceAccount: openmetadata
+      serviceAccountName: openmetadata
+      terminationGracePeriodSeconds: 30

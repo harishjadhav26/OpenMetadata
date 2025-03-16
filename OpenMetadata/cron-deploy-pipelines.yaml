@@ -1,0 +1,80 @@
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  labels:
+    app.kubernetes.io/instance: openmetadata
+    app.kubernetes.io/name: openmetadata
+  name: cron-deploy-pipelines
+  namespace: default
+spec:
+  concurrencyPolicy: Allow
+  failedJobsHistoryLimit: 1
+  jobTemplate:
+    metadata:
+      name: cron-deploy-pipelines
+    spec:
+      template:
+        metadata:
+          labels:
+            app.kubernetes.io/instance: openmetadata
+            app.kubernetes.io/name: openmetadata
+        spec:
+          containers:
+          - command:
+            - /bin/bash
+            - -c
+            - '/opt/openmetadata/bootstrap/openmetadata-ops.sh deploy-pipelines '
+            env:
+            - name: DB_USER_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  key: openmetadata-mysql-password
+                  name: mysql-secrets
+            - name: AIRFLOW_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  key: openmetadata-airflow-password
+                  name: airflow-secrets
+            envFrom:
+            - secretRef:
+                name: openmetadata-config-secret
+            - secretRef:
+                name: openmetadata-omd-secret
+            - secretRef:
+                name: openmetadata-db-secret
+            - secretRef:
+                name: openmetadata-search-secret
+            - secretRef:
+                name: openmetadata-authorizer-secret
+            - secretRef:
+                name: openmetadata-secretsmanager-secret
+            - secretRef:
+                name: openmetadata-web-secret
+            - secretRef:
+                name: openmetadata-authentication-secret
+            - secretRef:
+                name: openmetadata-eventmonitor-secret
+            - secretRef:
+                name: openmetadata-pipeline-secret
+            - secretRef:
+                name: openmetadata-jwt-secret
+            - secretRef:
+                name: openmetadata-fernetkey-secret
+            image: docker.getcollate.io/openmetadata/server:1.6.5
+            imagePullPolicy: Always
+            name: cron-deploy-pipelines
+            resources: {}
+            securityContext: {}
+            terminationMessagePath: /dev/termination-log
+            terminationMessagePolicy: File
+          dnsPolicy: ClusterFirst
+          restartPolicy: OnFailure
+          schedulerName: default-scheduler
+          securityContext: {}
+          serviceAccount: openmetadata
+          serviceAccountName: openmetadata
+          terminationGracePeriodSeconds: 30
+  schedule: 0/5 * * * *
+  successfulJobsHistoryLimit: 1
+  suspend: true
+status: {}

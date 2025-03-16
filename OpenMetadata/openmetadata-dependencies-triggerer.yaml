@@ -1,0 +1,186 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    app: airflow-triggerer
+  name: openmetadata-dependencies-triggerer
+  namespace: default
+spec:
+  progressDeadlineSeconds: 600
+  replicas: 1
+  revisionHistoryLimit: 10
+  selector:
+    matchLabels:
+      app: airflow-triggerer
+  strategy:
+    rollingUpdate:
+      maxSurge: 25%
+      maxUnavailable: 0
+    type: RollingUpdate
+  template:
+    metadata:
+      labels:
+        app: airflow
+        component: triggerer
+    spec:
+      affinity: {}
+      containers:
+      - args:
+        - bash
+        - -c
+        - exec airflow triggerer
+        command:
+        - /usr/bin/dumb-init
+        - --
+        - /entrypoint
+        env:
+        - name: DATABASE_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              key: airflow-mysql-password
+              name: airflow-mysql-secrets
+        - name: CONNECTION_CHECK_MAX_COUNT
+          value: "0"
+        envFrom:
+        - secretRef:
+            name: openmetadata-dependencies-config-envs
+        image: docker.getcollate.io/openmetadata/ingestion:1.6.5
+        imagePullPolicy: IfNotPresent
+        livenessProbe:
+          exec:
+            command:
+            - /usr/bin/dumb-init
+            - --
+            - /entrypoint
+            - python
+            - -Wignore
+            - -c
+            - |
+              import os
+              import sys
+
+              # suppress logs triggered from importing airflow packages
+              os.environ["AIRFLOW__LOGGING__LOGGING_LEVEL"] = "ERROR"
+
+              # shared imports
+              try:
+                  from airflow.jobs.job import Job
+              except ImportError:
+                  # `BaseJob` was renamed to `Job` in airflow 2.6.0
+                  from airflow.jobs.base_job import BaseJob as Job
+              from airflow.utils.db import create_session
+              from airflow.utils.net import get_hostname
+
+              with create_session() as session:
+                  # ensure the TriggererJob with most recent heartbeat for this `hostname` is alive
+                  hostname = get_hostname()
+                  triggerer_job = session \
+                      .query(Job) \
+                      .filter_by(job_type="TriggererJob") \
+                      .filter_by(hostname=hostname) \
+                      .order_by(Job.latest_heartbeat.desc()) \
+                      .limit(1) \
+                      .first()
+                  if (triggerer_job is not None) and triggerer_job.is_alive():
+                      pass
+                  else:
+                      sys.exit(f"The TriggererJob (id={triggerer_job.id}) for hostname '{hostname}' is not alive")
+          failureThreshold: 5
+          initialDelaySeconds: 10
+          periodSeconds: 30
+          successThreshold: 1
+          timeoutSeconds: 60
+        name: airflow-triggerer
+        resources: {}
+        securityContext:
+          runAsGroup: 0
+          runAsUser: 50000
+        terminationMessagePath: /dev/termination-log
+        terminationMessagePolicy: File
+        volumeMounts:
+        - mountPath: /opt/airflow/dags
+          name: dags-data
+        - mountPath: /opt/airflow/logs
+          name: logs-data
+      dnsPolicy: ClusterFirst
+      initContainers:
+      - args:
+        - bash
+        - -c
+        - exec timeout 60s airflow db check
+        command:
+        - /usr/bin/dumb-init
+        - --
+        - /entrypoint
+        env:
+        - name: DATABASE_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              key: airflow-mysql-password
+              name: airflow-mysql-secrets
+        - name: CONNECTION_CHECK_MAX_COUNT
+          value: "0"
+        envFrom:
+        - secretRef:
+            name: openmetadata-dependencies-config-envs
+        image: docker.getcollate.io/openmetadata/ingestion:1.6.5
+        imagePullPolicy: IfNotPresent
+        name: check-db
+        resources: {}
+        securityContext:
+          runAsGroup: 0
+          runAsUser: 50000
+        terminationMessagePath: /dev/termination-log
+        terminationMessagePolicy: File
+        volumeMounts:
+        - mountPath: /opt/airflow/dags
+          name: dags-data
+        - mountPath: /opt/airflow/logs
+          name: logs-data
+      - args:
+        - bash
+        - -c
+        - exec airflow db check-migrations -t 60
+        command:
+        - /usr/bin/dumb-init
+        - --
+        - /entrypoint
+        env:
+        - name: DATABASE_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              key: airflow-mysql-password
+              name: airflow-mysql-secrets
+        - name: CONNECTION_CHECK_MAX_COUNT
+          value: "0"
+        envFrom:
+        - secretRef:
+            name: openmetadata-dependencies-config-envs
+        image: docker.getcollate.io/openmetadata/ingestion:1.6.5
+        imagePullPolicy: IfNotPresent
+        name: wait-for-db-migrations
+        resources: {}
+        securityContext:
+          runAsGroup: 0
+          runAsUser: 50000
+        terminationMessagePath: /dev/termination-log
+        terminationMessagePolicy: File
+        volumeMounts:
+        - mountPath: /opt/airflow/dags
+          name: dags-data
+        - mountPath: /opt/airflow/logs
+          name: logs-data
+      restartPolicy: Always
+      schedulerName: default-scheduler
+      securityContext:
+        fsGroup: 0
+      serviceAccount: airflow
+      serviceAccountName: airflow
+      terminationGracePeriodSeconds: 30
+      volumes:
+      - name: dags-data
+        persistentVolumeClaim:
+          claimName: openmetadata-dependencies-dags
+      - name: logs-data
+        persistentVolumeClaim:
+          claimName: openmetadata-dependencies-logs

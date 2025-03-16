@@ -1,0 +1,189 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    app: openmetadata-dependencies-web
+  name: openmetadata-dependencies-web
+  namespace: default
+spec:
+  progressDeadlineSeconds: 600
+  replicas: 1
+  revisionHistoryLimit: 10
+  selector:
+    matchLabels:
+      app: openmetadata-dependencies-web
+  strategy:
+    rollingUpdate:
+      maxSurge: 25%
+      maxUnavailable: 0
+    type: RollingUpdate
+  template:
+    metadata:
+      labels:
+        app: openmetadata-dependencies-web
+    spec:
+      affinity: {}
+      containers:
+      - args:
+        - bash
+        - -c
+        - exec airflow webserver
+        command:
+        - /usr/bin/dumb-init
+        - --
+        - /entrypoint
+        env:
+        - name: DATABASE_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              key: airflow-mysql-password
+              name: airflow-mysql-secrets
+        - name: CONNECTION_CHECK_MAX_COUNT
+          value: "0"
+        envFrom:
+        - secretRef:
+            name: openmetadata-dependencies-config-envs
+        image: docker.getcollate.io/openmetadata/ingestion:1.6.5
+        imagePullPolicy: IfNotPresent
+        livenessProbe:
+          failureThreshold: 10
+          httpGet:
+            path: /health
+            port: web
+            scheme: HTTP
+          initialDelaySeconds: 60
+          periodSeconds: 30
+          successThreshold: 1
+          timeoutSeconds: 10
+        name: openmetadata-dependencies-web
+        ports:
+        - containerPort: 8080
+          name: web
+          protocol: TCP
+        readinessProbe:
+          failureThreshold: 10
+          httpGet:
+            path: /health
+            port: web
+            scheme: HTTP
+          initialDelaySeconds: 60
+          periodSeconds: 30
+          successThreshold: 1
+          timeoutSeconds: 10
+        resources: {}
+        securityContext:
+          runAsGroup: 0
+          runAsUser: 50000
+        terminationMessagePath: /dev/termination-log
+        terminationMessagePolicy: File
+        volumeMounts:
+        - mountPath: /opt/airflow/dags
+          name: dags-data
+        - mountPath: /opt/airflow/logs
+          name: logs-data
+        - mountPath: /opt/airflow/pod_templates/pod_template.yaml
+          name: pod-template
+          readOnly: true
+          subPath: pod_template.yaml
+        - mountPath: /opt/airflow/webserver_config.py
+          name: webserver-config
+          readOnly: true
+          subPath: webserver_config.py
+      dnsPolicy: ClusterFirst
+      initContainers:
+      - args:
+        - bash
+        - -c
+        - exec timeout 60s airflow db check
+        command:
+        - /usr/bin/dumb-init
+        - --
+        - /entrypoint
+        env:
+        - name: DATABASE_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              key: airflow-mysql-password
+              name: airflow-mysql-secrets
+        - name: CONNECTION_CHECK_MAX_COUNT
+          value: "0"
+        envFrom:
+        - secretRef:
+            name: openmetadata-dependencies-config-envs
+        image: docker.getcollate.io/openmetadata/ingestion:1.6.5
+        imagePullPolicy: IfNotPresent
+        name: check-db
+        resources: {}
+        securityContext:
+          runAsGroup: 0
+          runAsUser: 50000
+        terminationMessagePath: /dev/termination-log
+        terminationMessagePolicy: File
+        volumeMounts:
+        - mountPath: /opt/airflow/dags
+          name: dags-data
+        - mountPath: /opt/airflow/logs
+          name: logs-data
+        - mountPath: /opt/airflow/pod_templates/pod_template.yaml
+          name: pod-template
+          readOnly: true
+          subPath: pod_template.yaml
+      - args:
+        - bash
+        - -c
+        - exec airflow db check-migrations -t 60
+        command:
+        - /usr/bin/dumb-init
+        - --
+        - /entrypoint
+        env:
+        - name: DATABASE_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              key: airflow-mysql-password
+              name: airflow-mysql-secrets
+        - name: CONNECTION_CHECK_MAX_COUNT
+          value: "0"
+        envFrom:
+        - secretRef:
+            name: openmetadata-dependencies-config-envs
+        image: docker.getcollate.io/openmetadata/ingestion:1.6.5
+        imagePullPolicy: IfNotPresent
+        name: wait-for-db-migrations
+        resources: {}
+        securityContext:
+          runAsGroup: 0
+          runAsUser: 50000
+        terminationMessagePath: /dev/termination-log
+        terminationMessagePolicy: File
+        volumeMounts:
+        - mountPath: /opt/airflow/dags
+          name: dags-data
+        - mountPath: /opt/airflow/logs
+          name: logs-data
+        - mountPath: /opt/airflow/pod_templates/pod_template.yaml
+          name: pod-template
+          readOnly: true
+          subPath: pod_template.yaml
+      restartPolicy: Always
+      schedulerName: default-scheduler
+      securityContext:
+        fsGroup: 0
+      serviceAccount: airflow
+      serviceAccountName: airflow
+      terminationGracePeriodSeconds: 30
+      volumes:
+      - name: dags-data
+        persistentVolumeClaim:
+          claimName: openmetadata-dependencies-dags
+      - name: logs-data
+        persistentVolumeClaim:
+          claimName: openmetadata-dependencies-logs
+      - configMap:
+          defaultMode: 420
+          name: openmetadata-pod-template
+        name: pod-template
+      - name: webserver-config
+        secret:
+          defaultMode: 420
+          secretName: openmetadata-dependencies-webserver-config

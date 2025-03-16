@@ -1,0 +1,112 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  labels:
+    app: openmetadata-dependencies-db-migrations
+  name: openmetadata-dependencies-db-migrations
+  namespace: default
+spec:
+  progressDeadlineSeconds: 600
+  replicas: 1
+  revisionHistoryLimit: 10
+  selector:
+    matchLabels:
+      app: openmetadata-dependencies-db-migrations
+  strategy:
+    type: Recreate
+  template:
+    metadata:
+      labels:
+        app: openmetadata-dependencies-db-migrations
+    spec:
+      affinity: {}
+      containers:
+      - args:
+        - python
+        - -u
+        - /mnt/scripts/db_migrations.py
+        command:
+        - /usr/bin/dumb-init
+        - --
+        - /entrypoint
+        env:
+        - name: DATABASE_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              key: airflow-mysql-password
+              name: airflow-mysql-secrets
+        - name: CONNECTION_CHECK_MAX_COUNT
+          value: "0"
+        envFrom:
+        - secretRef:
+            name: openmetadata-dependencies-config-envs
+        image: docker.getcollate.io/openmetadata/ingestion:1.6.5
+        imagePullPolicy: IfNotPresent
+        name: db-migrations
+        resources: {}
+        securityContext:
+          runAsGroup: 0
+          runAsUser: 50000
+        terminationMessagePath: /dev/termination-log
+        terminationMessagePolicy: File
+        volumeMounts:
+        - mountPath: /opt/airflow/dags
+          name: dags-data
+        - mountPath: /opt/airflow/logs
+          name: logs-data
+        - mountPath: /mnt/scripts
+          name: scripts
+          readOnly: true
+      dnsPolicy: ClusterFirst
+      initContainers:
+      - args:
+        - bash
+        - -c
+        - exec timeout 60s airflow db check
+        command:
+        - /usr/bin/dumb-init
+        - --
+        - /entrypoint
+        env:
+        - name: DATABASE_PASSWORD
+          valueFrom:
+            secretKeyRef:
+              key: airflow-mysql-password
+              name: airflow-mysql-secrets
+        - name: CONNECTION_CHECK_MAX_COUNT
+          value: "0"
+        envFrom:
+        - secretRef:
+            name: openmetadata-dependencies-config-envs
+        image: docker.getcollate.io/openmetadata/ingestion:1.6.5
+        imagePullPolicy: IfNotPresent
+        name: check-db
+        resources: {}
+        securityContext:
+          runAsGroup: 0
+          runAsUser: 50000
+        terminationMessagePath: /dev/termination-log
+        terminationMessagePolicy: File
+        volumeMounts:
+        - mountPath: /opt/airflow/dags
+          name: dags-data
+        - mountPath: /opt/airflow/logs
+          name: logs-data
+      restartPolicy: Always
+      schedulerName: default-scheduler
+      securityContext:
+        fsGroup: 0
+      serviceAccount: airflow
+      serviceAccountName: airflow
+      terminationGracePeriodSeconds: 30
+      volumes:
+      - name: dags-data
+        persistentVolumeClaim:
+          claimName: openmetadata-dependencies-dags
+      - name: logs-data
+        persistentVolumeClaim:
+          claimName: openmetadata-dependencies-logs
+      - name: scripts
+        secret:
+          defaultMode: 420
+          secretName: openmetadata-dependencies-db-migrations
